@@ -1,108 +1,176 @@
-# Here is a simple default VCL file for your app. You will want to customize
-# this for your own needs.
+# The initial was for Varnish 2.1, this has been updated for Varnish 3.
+# The upgrade changes were based on the docs here:
+# https://www.varnish-cache.org/docs/3.0/installation/upgrade.html
+
+# https://www.varnish-cache.org/docs/2.1/tutorial/vcl.html
+# https://www.varnish-cache.org/trac/wiki/VCLExamples
+
+# Summary
+# 1. Varnish will poll the backend at /health_check to make sure it is
+#    healthy. If the backend goes down, varnish will server stale content
+#    from the cache for up to 1 hour.
+# 2. Varnish will pass X-Forwarded-For headers through to the backend
+# 3. Varnish will remove cookies from urls that match static content file
+#    extensions (jpg, gif, ...)
+# 4. Varnish will normalize the Accept-Encoding header
+# 5. Varnish will respect the Cache-Control header, even when a Set-Cookie
+#    header accompanies it from the backend. For example,
+#    `Cache-Control: no-cache` will not get stored in Varnish and
+#    `Cache-Control: max-age=600` will.
+# 6. Varnish will add a X-Varnish-Cache header to aid in debugging
 
 backend default {
-   .host = "127.0.0.1";
-   .port = "81"; 
-} 
+.host = "127.0.0.1";
+.port = "81";
+}
 
+# NOTE: vcl_recv is called at the beginning of a request, after the complete
+# request has been received and parsed. Its purpose is to decide whether or not
+# to serve the request, how to do it, and, if applicable, which backend to use.
 sub vcl_recv {
-  set req.grace = 120s; 
+  # If the backend is healthy, only accept objects that are 30 seconds old,
+  # but if the backend is sick, accept objects that are up to an hour old.
+  # https://www.varnish-cache.org/trac/wiki/VCLExampleGrace
+  if (req.backend.healthy) {
+    set req.grace = 30s;
+  } else {
+    set req.grace = 1h;
+  }
 
-##### Exclude specific urls
-#
-# This following section can be used to give Varnish regular expression to
-# compare the requested URL to. If there is a match, the requested item
-# will not be served from cache, nor cached by Varnish. The request will
-# be passed immediately to the backend.
-#
-#####
-#
-# if (req.url ~ "/do_not_cache_me") {
-#   return (pass);
-# }
-#
-### Sometimes you may want to remove incoming cookies, tooxs, as
-### normally unique cookies will prevent caching. Use this with the
-### remove cookies code in vcl_fetch, too.
-#
-#   else {
-#   # Get rid of cookies so that a normal cache lookup can be done.
-#   unset req.http.cookie;
-# }
-#####
+  # Normalize Accept-Encoding to prevent duplicates in the cache
+  # https://www.varnish-cache.org/trac/wiki/VCLExampleNormalizeAcceptEncoding
+  if (req.http.Accept-Encoding) {
+    if (req.http.Accept-Encoding ~ "gzip") {
+      set req.http.Accept-Encoding = "gzip";
+    } elsif (req.http.Accept-Encoding ~ "deflate") {
+      set req.http.Accept-Encoding = "deflate";
+    } else {
+      # unkown algorithm
+      remove req.http.Accept-Encoding;
+    }
+  }
 
-##### Normalize Accept-Encoding
-#
-# The Accept-Encoding header can be formatted multiple ways by different
-# browsers, resulting in multiple identical copies of things in the cache.
-# This normalizes it.
-#
-#####
-#
-#  if (req.http.Accept-Encoding) {
-#    if (req.http.Accept-Encoding ~ "gzip") {
-#      set req.http.Accept-Encoding = "gzip";
-#    } elsif (req.http.Accept-Encoding ~ "deflate") {
-#      set req.http.Accept-Encoding = "deflate";
-#    } else {
-#      remove req.http.Accept-Encoding;
-#    }
-#  }
-#####
+  # This rule is to insert the client's ip address into the request header
+  if (req.restarts == 0) {
+    if (req.http.x-forwarded-for) {
+      set req.http.X-Forwarded-For = req.http.X-Forwarded-For + ", " + client.ip;
+    } else {
+      set req.http.X-Forwarded-For = client.ip;
+    }
+  }
 
-} 
-  
+  # Force lookup if the request is a no-cache request from the client
+  # IE - shift-reload causes cache refresh - We may not want this in
+  # production but useful during initial deployment and testing
+  #if (req.http.Cache-Control ~ "no-cache") {
+  #  ban_url(req.url);
+  #}
+
+  # Don't cache POST, PUT, or DELETE requests
+  if (req.request == "POST" || req.request == "PUT" || req.request == "DELETE" || req.request == "PATCH") {
+    return(pass);
+  }
+
+  # Set content type so rails does not error when there is a POST of multiform type
+  if (req.url ~ "^/header") {
+    set req.http.Content-Type = "text/html; charset=utf-8";
+    return(pass);
+  }
+  # Don't cache login pages
+  if(req.url ~ "^/auth") {
+    return(pass);
+  }
+
+  if(req.url ~ "^/login") {
+    return(pass);
+  }
+
+  # Strip cookies from static content
+  if (req.request == "GET" && req.url ~ "\.(png|gif|jpg|swf|css|js)$") {
+    unset req.http.cookie;
+  }
+
+  if (req.request == "PURGE") {
+    #if (!client.ip ~purge){
+    #  error 405 "Not allowed";
+    #}
+    #purge("req.url ~ ^" req.url "$");
+    ban("req.http.host == " +req.http.host+" && req.url ~ "+req.url);
+    #error 200 "Ban added";
+
+  }
+
+  # We will try to retrieve every request from the cache. There will be no
+  # intelligence on the varnish side to determine whether to look or not look
+  # at the cache.
+  return(lookup);
+}
+
+sub vcl_pipe {
+  # Note that only the first request to the backend will have
+  # X-Forwarded-For set.  If you use X-Forwarded-For and want to
+  # have it set for all requests, make sure to have:
+  # set bereq.http.connection = "close";
+  # here.  It is not set by default as it might break some broken web
+  # applications, like IIS with NTLM authentication.
+  set bereq.http.connection = "close";
+  return(pipe);
+}
+
+# NOTE: vcl_fetch is called after a document has been successfully retrieved
+# from the backend. Normal tasks her are to alter the response headers, trigger
+# ESI processing, try alternate backend servers in case the request failed.
 sub vcl_fetch {
-##### Grace period
-#
-# If a thread is fetching this object, set the grace period on it to
-# 120 seconds so that stale content can be served from cache for that period,
-# while waiting for the thread to return a new copy of the content. Change or
-# eliminate this value as needed.
-#
-#####
-  set obj.grace = 120s;
-  
-##### Force caching
-#
-# If the normal TTL on the content is less than 120 seconds, set it to 120 seconds.
-# Rails apps often come out of the box being cache-unfriendly. This is an easy
-# workaround that forces them to be cached anyway. Be careful with this, though, as
-# you may end up caching more than you want to. The right answer is to fix the
-# app to use proper cache control headers for things that should be cached, but this
-# is a quick work-around.
-#
-#####
-# if (obj.ttl < 120s) {
-#   set obj.ttl = 120s;
-# }
+  set beresp.do_esi = true; /* Do ESI processing               */
+  # Keep objects 1 hour in cache past their expiry time. This allows varnish
+  # to server stale content if the backend is sick.
+  set beresp.grace = 1h;
 
-##### Remove Cookies
-#
-# If there are requests that have to be able to pass cookies on, and/or cache
-# based on cookies (private caches per user), then this and the code in vcl_recv
-# will have to be adjusted. Refer to the Varnish docs for details, as needed.
-#
-#####
-#
-#  if (req.url ~ "^/(application/dyn.js|login|signup|logout|.*/edit/|.*/delete/|.*/new|.*/users|.*/csvs)") {
-#    # No-oping here at the moment. The assumption is that since this stuff here is never to be cached,
-#    # it will be excluded from any other cookie manipulation, too. I'm leaving this block here, though,
-#    # in case someone might want to do something else with these requests.
-#  } else {
-#    # The Cookie Monster eats the cookies.
-#    unset obj.http.set-cookie;
-#  }
-} 
+  if (req.url ~ "^/header") {
+    return(hit_for_pass);
+  }
+
+  # If header specifies "no-cache", don't cache.
+  if (
+    beresp.http.Pragma        ~ "no-cache" ||
+    beresp.http.Cache-Control ~ "no-cache" ||
+    beresp.http.Cache-Control ~ "private"
+  ) {
+    return(hit_for_pass);
+  }
+
+  # Get static content from cache
+  if (req.request == "GET" && req.url ~ "\.(png|gif|jpg|swf|css|js)$") {
+    return(deliver);
+  }
+
+  # If header specifies "max-age", remove any cookie and deliver into the cache.
+  # The idea here is to trust the backend. If the backend set a max-age in
+  # the Cache-Control header, then the response should be cached even if there
+  # is a Set-Cookie header. The cleaner way to handle this is the not set a
+  # Set-Cookie header in the backend, but unfortunately Rails always sets one.
+  if (beresp.http.Cache-Control ~ "max-age" || beresp.http.Cache-Control ~ "no-cache") {
+    # unset so it is not cached in varnish
+    unset beresp.http.Set-Cookie;
+
+    /* Set how long Varnish will keep it */
+    set beresp.ttl = 1w;
+
+    # We dont want the browser to cache any pages.
+    set beresp.http.Cache-Control = "no-cache, no-store, must-revalidate";
+    return(deliver);
+  }
+
+  # Do not deliver into cache otherwise.
+  return(hit_for_pass);
+}
 
 sub vcl_deliver {
-  # This just inserts a diagnostic header to let us know if the content
-  # was served via a cache hit, or whether it was a miss.
-  
+  # The below provides custom headers to indicate whether the response came from
+  # varnish cache or directly from the app.
   if (obj.hits > 0) {
-    set resp.http.X-Cache = "HIT";
+    set resp.http.X-Varnish-Cache = "HIT";
   } else {
-    set resp.http.X-Cache = "MISS";
+    set resp.http.X-Varnish-Cache = "MISS";
   }
 }

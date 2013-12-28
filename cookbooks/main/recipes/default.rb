@@ -73,7 +73,7 @@
 #uncomment to use the solr recipe
 #include_recipe "solr"
 
-#include_recipe "varnish_frontend"
+include_recipe "varnish"
 
 #uncomment to set environment variables in passenger or unicorn
 # Set environment variables as specified in cookbooks/env_vars/attributes/env_vars.rb

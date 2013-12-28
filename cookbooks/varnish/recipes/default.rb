@@ -11,11 +11,11 @@ if ['solo','app_master'].include?(node[:instance_role])
   # This makes sure that it is.
 
   enable_package "www-servers/varnish" do
-    version '2.0.6'
+    version '3.0.3'
   end
 
   package "www-servers/varnish" do
-    version '2.0.6'
+    version '3.0.3'
     action :install
   end
 
