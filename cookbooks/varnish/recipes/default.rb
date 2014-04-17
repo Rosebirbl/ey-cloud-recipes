@@ -94,7 +94,8 @@ if ['solo','app_master'].include?(node[:instance_role])
       :thread_pool_max => THREAD_POOL_MAX,
       :overflow_max => OVERFLOW_MAX,
       :cache => CACHE,
-      :varnish_port => HAS_HAPROXY ? 82 : 80
+      :varnish_port => HAS_HAPROXY ? 81 : 80,
+      :interface => node["network"]["interfaces"]["etho0"]["addresses"].keys[1]
     })
   end
 
@@ -113,30 +114,13 @@ if ['solo','app_master'].include?(node[:instance_role])
   end
 
 
-  if HAS_HAPROXY
-    # Edit the haproxy config to point at Varnish instead of nginx.
-
-    execute "Edit the haproxy.cfg file to point it at varnish instead of nginx" do
-      command %Q{
-        perl -p -i -e's{(server\\s+[\\w\\-]+\\s+[\\w\\-\\.]+):81}{$1:82}' /etc/haproxy.cfg
-      }
-    end
-
-    # Restart haproxy
-
-    execute "Restarting haproxy" do
-      command %Q{
-        /etc/init.d/haproxy restart
-      }
-    end
-  else
     # Edit nginx config to change it off of port 80; we may or may not want the recipe to do this?
     # The idea is that for the typical simple deployment, nginx will be listening in some config to port 80.
     # We want to change that to port 81, so that the default varnish config can listen on port 80 and forward to 81.
 
     execute "Edit the config files inline to change nginx from listening on port 80 to listening on port 81" do
       command %Q{
-        bash -c 'for k in `grep -l "listen 80;" /etc/nginx/servers/*.conf`; do perl -p -i -e"s{listen 80;}{listen 81;}" $k; mv $k "/etc/nginx/servers/keep.`basename $k`"; done'
+        bash -c 'for k in `grep -l "listen 81;" /etc/nginx/servers/*.conf`; do perl -p -i -e"s{listen 81;}{listen 82;}" $k; mv $k "/etc/nginx/servers/keep.`basename $k`"; done'
       }
     end
 
@@ -147,7 +131,7 @@ if ['solo','app_master'].include?(node[:instance_role])
         /etc/init.d/nginx restart
       }
     end
-  end
+  
 
 
   # Start/restart varnish
