@@ -83,6 +83,9 @@ if ['solo','app_master'].include?(node[:instance_role])
   # nginx should be on port 81.
 
   HAS_HAPROXY = FileTest.exist?('/etc/haproxy.cfg')
+  
+  instances = node[:engineyard][:environment][:instances]
+  varnish_instance = (node[:instance_role][/solo/] && instances.length == 1) ? instances[0] : instances.find{|i| i[:name].to_s[/app master/]}
 
   # Install the varnish monit file.
   template '/etc/monit.d/varnishd.monitrc' do
@@ -95,7 +98,7 @@ if ['solo','app_master'].include?(node[:instance_role])
       :overflow_max => OVERFLOW_MAX,
       :cache => CACHE,
       :varnish_port => HAS_HAPROXY ? 81 : 80,
-      :interface => node["network"]["interfaces"]["etho0"]["addresses"].keys[1]
+      :private_host_name => varnish_instance[:private_hostname]
     })
   end
 
