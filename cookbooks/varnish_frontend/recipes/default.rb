@@ -79,6 +79,7 @@ if ['solo','app_master', 'app'].include?(node[:instance_role])
     CACHE="malloc,1GB"
   end
 
+varnish_instance = (node[:instance_role][/solo/] && instances.length == 1) ? instances[0] : instances.find{|i| i[:name].to_s[/app master/]}
   # Install the varnish monit file.
   template '/usr/local/bin/varnishd_wrapper' do
     mode 755
@@ -88,7 +89,8 @@ if ['solo','app_master', 'app'].include?(node[:instance_role])
       :thread_pool_max => THREAD_POOL_MAX,
       :overflow_max => OVERFLOW_MAX,
       :cache => CACHE,
-      :varnish_port => 882
+      :varnish_port => 882,
+      :private_host_name => varnish_instance[:private_hostname]
     })
   end
 

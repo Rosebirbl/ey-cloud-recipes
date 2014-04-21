@@ -74,6 +74,7 @@
 #include_recipe "solr"
 
 include_recipe "varnish"
+include_recipe "delayed_job"
 
 #uncomment to set environment variables in passenger or unicorn
 # Set environment variables as specified in cookbooks/env_vars/attributes/env_vars.rb
