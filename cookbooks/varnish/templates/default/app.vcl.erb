@@ -65,6 +65,11 @@ sub vcl_recv {
   #if (req.http.Cache-Control ~ "no-cache") {
   #  ban_url(req.url);
   #}
+  
+  if ( req.http.X-Forwarded-Proto !~ "(?i)https") {
+    set req.http.x-Redir-Url = "https://www.birbl.com" + req.url;
+    error 750 req.http.x-Redir-Url;
+  }
 
   # Don't cache POST, PUT, or DELETE requests
   if (req.request == "POST" || req.request == "PUT" || req.request == "DELETE" || req.request == "PATCH") {
@@ -173,4 +178,12 @@ sub vcl_deliver {
   } else {
     set resp.http.X-Varnish-Cache = "MISS";
   }
+}
+
+sub vcl_error {
+    if (obj.status == 750) {
+        set obj.http.Location = obj.response;
+        set obj.status = 302;
+        return (deliver);
+    }
 }
