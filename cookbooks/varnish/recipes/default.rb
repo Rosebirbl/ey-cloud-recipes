@@ -5,7 +5,7 @@
 
 require 'etc'
 
-if ['solo','app_master'].include?(node[:instance_role])
+if ['solo','app_master', 'app'].include?(node[:instance_role])
 
   # This needs to be in keywords: www-servers/varnish ~x86
   # This makes sure that it is.
@@ -84,8 +84,10 @@ if ['solo','app_master'].include?(node[:instance_role])
 
   HAS_HAPROXY = FileTest.exist?('/etc/haproxy.cfg')
   
+  #node[:instance_role]
   instances = node[:engineyard][:environment][:instances]
-  varnish_instance = (node[:instance_role][/solo/] && instances.length == 1) ? instances[0] : instances.find{|i| i[:role].to_s[/app_master/]}
+  instance_role = node[:instance_role]
+  varnish_instance = (node[:instance_role][/solo/] && instances.length == 1) ? instances[0] : instances.find{|i| i[:role].to_s[instance_role]}
 
   # Install the varnish monit file.
   template '/etc/monit.d/varnishd.monitrc' do
