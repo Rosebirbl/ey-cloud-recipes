@@ -86,9 +86,12 @@ if ['solo','app_master', 'app'].include?(node[:instance_role])
   
   #node[:instance_role]
   instances = node[:engineyard][:environment][:instances]
+  puts instances.inspect
   instance_role = node[:instance_role]
-  varnish_instance = (node[:instance_role][/solo/] && instances.length == 1) ? instances[0] : instances.find{|i| i[:role].to_s[instance_role]}
-
+  puts instance_role.inspect
+  varnish_instance = (node[:instance_role][/solo/] && instances.length == 1) ? instances[0] : instances.find{|i| i[:role].to_s.eql?(instance_role)}
+  puts varnish_instance
+  
   # Install the varnish monit file.
   template '/etc/monit.d/varnishd.monitrc' do
     owner node[:owner_name]
