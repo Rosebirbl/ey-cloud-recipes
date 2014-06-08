@@ -77,10 +77,11 @@ sub vcl_recv {
   }
 
   # Set content type so rails does not error when there is a POST of multiform type
-  if (req.url ~ "^/header") {
-    set req.http.Content-Type = "text/html; charset=utf-8";
-    return(pass);
-  }
+  # Set content type so rails does not error when there is a POST of multiform type
+#  if (req.url ~ "^/header") {
+#    set req.http.Content-Type = "text/html; charset=utf-8";
+#    return(pass);
+#  }
   # Don't cache login pages
   if(req.url ~ "^/auth") {
     return(pass);
@@ -132,7 +133,8 @@ sub vcl_fetch {
   set beresp.grace = 1h;
 
   if (req.url ~ "^/header") {
-    return(hit_for_pass);
+    #return(hit_for_pass);
+    return(deliver);
   }
 
   # If header specifies "no-cache", don't cache.
@@ -186,4 +188,18 @@ sub vcl_error {
         set obj.status = 302;
         return (deliver);
     }
+}
+
+sub vcl_hash {
+    hash_data(req.url);
+    hash_data(req.http.host);
+
+  # Set content type so rails does not error when there is a POST of multiform type
+  if (req.url ~ "^/header" && req.http.Cookie ~ "logged_in_cookie=") {
+     # Use both session and logged in cookie values to make the key. This way if the session expires then the header will be updated
+     hash_data(regsub( req.http.Cookie, "^.*?_birbl_session=([^;]*);*.*$", "\1" ) + regsub( req.http.Cookie, "^.*?logged_in_cookie=([^;]*);*.*$", "\1" ));
+   # set req.http.Content-Type = "text/html; charset=utf-8";
+   # return(pass);
+  }
+#set req.hash += "show nsfw";
 }
